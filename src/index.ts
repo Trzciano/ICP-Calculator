@@ -1,9 +1,10 @@
-// cannister code goes here
-import { v4 as uuidv4 } from 'uuid';
-import { Server, StableBTreeMap, ic } from 'azle';
+// Import required modules
 import express from 'express';
+import { Server, StableBTreeMap, ic } from 'azle';
+import { v4 as uuidv4 } from 'uuid';
 
-class Calculator {
+// Define the Calculator record structure
+interface Calculator {
     id: string;
     number: number;
     numberBefore: number;
@@ -11,267 +12,184 @@ class Calculator {
     updatedAt: Date | null;
 }
 
+// Initialize a database for calculator records
 const calculatorStorage = StableBTreeMap<string, Calculator>(0);
 
+// Create an Express server
 export default Server(() => {
     const app = express();
     app.use(express.json());
 
-    //Saving history for calculator operations
+    // Middleware to save history for calculator operations
     app.use("/calculator/:id", (req, res, next) => {
         const calculatorId = req.params.id;
-        const excludedEndpoints = ['/send/', '/undo']; //Endpoints to exclude
+        const excludedEndpoints = ['/send/', '/undo']; // Endpoints to exclude
         const shouldExclude = excludedEndpoints.some(endpoint => req.originalUrl.includes(endpoint));
         if (!shouldExclude) {
-            const calculatorOpt = calculatorStorage.get(calculatorId);
-            if ("None" in calculatorOpt) {
+            const calculator = calculatorStorage.get(calculatorId);
+            if (calculator === null) {
                 res.status(404).send(`Calculator with id=${calculatorId} not found`);
             } else {
-                const calculator = calculatorOpt.Some;
                 calculator.numberBefore = calculator.number;
                 calculatorStorage.insert(calculatorId, calculator);
                 next();
             }
         } else {
-            next(); //Skip
+            next(); // Skip
         }
     });
 
-    //Creating calculator
+    // Endpoint to create a new calculator
     app.post("/calculator", (req, res) => {
-        const calculator: Calculator =  {id: uuidv4(), number:0,createdAt: getCurrentDate(), ...req.body};
+        const calculator: Calculator = {
+            id: uuidv4(),
+            number: 0,
+            createdAt: getCurrentDate(),
+            updatedAt: null,
+            ...req.body
+        };
         calculatorStorage.insert(calculator.id, calculator);
         res.json(calculator);
     });
 
-    //List of all calculators
+    // Endpoint to retrieve all calculators
     app.get("/calculator", (req, res) => {
         res.json(calculatorStorage.values());
-     });
+    });
 
-    //About 1 calculator
+    // Endpoint to retrieve a calculator by ID
     app.get("/calculator/:id", (req, res) => {
         const calculatorId = req.params.id;
-        const calculatorOpt = calculatorStorage.get(calculatorId);
-        if ("None" in calculatorOpt) {
+        const calculator = calculatorStorage.get(calculatorId);
+        if (calculator === null) {
             res.status(404).send(`Calculator with id=${calculatorId} not found`);
         } else {
-            const calculator = calculatorOpt.Some;
             res.json(calculator);
         }
     });
 
-    //Undo calculator operation
-    app.put("/calculator/:id/undo", (req, res) => {
+    // Function to update a calculator value
+    const updateCalculatorValue = (req: express.Request, res: express.Response, operation: (number: number, value: number) => number) => {
         const calculatorId = req.params.id;
-        const calculatorOpt = calculatorStorage.get(calculatorId);
-        if ("None" in calculatorOpt) {
+        const value = req.body.value;
+        const calculator = calculatorStorage.get(calculatorId);
+        if (calculator === null) {
             res.status(404).send(`Calculator with id=${calculatorId} not found`);
         } else {
-            const calculator = calculatorOpt.Some;
-            calculator.number = calculator.numberBefore; // Przywrócenie wartości number do numberBefore
+            calculator.number = operation(calculator.number, value);
             calculator.updatedAt = getCurrentDate();
             calculatorStorage.insert(calculatorId, calculator);
             res.json(calculator);
         }
-    });
+    };
 
-    //Set calculator value
-    app.put("/calculator/:id/set", (req, res) => {
-        const calculatorId = req.params.id;
-        const valueToSet = req.body.value;
-        const calculatorOpt = calculatorStorage.get(calculatorId);
-        if ("None" in calculatorOpt) {
-            res.status(404).send(`Calculator with id=${calculatorId} not found`);
-        } else {
-            const calculator = calculatorOpt.Some;
-            calculator.number = valueToSet;
-            calculator.updatedAt = getCurrentDate();
-            calculatorStorage.insert(calculatorId, calculator);
-            res.json(calculator);
-        }
-    });
-
-    //Add
+    // Endpoint to perform addition
     app.put("/calculator/:id/add", (req, res) => {
-        const calculatorId = req.params.id;
-        const valueToAdd = req.body.value;
-        const calculatorOpt = calculatorStorage.get(calculatorId);
-        if ("None" in calculatorOpt) {
-            res.status(404).send(`Calculator with id=${calculatorId} not found`);
-        } else {
-            const calculator = calculatorOpt.Some;
-            calculator.number += valueToAdd;
-            calculator.updatedAt = getCurrentDate();
-            calculatorStorage.insert(calculatorId, calculator);
-            res.json(calculator);
-        }
+        updateCalculatorValue(req, res, (number, value) => number + value);
     });
 
-    //Subtract
-    app.put("/calculator/:id/sub", (req, res) => {
-        const calculatorId = req.params.id;
-        const valueToAdd = req.body.value;
-        const calculatorOpt = calculatorStorage.get(calculatorId);
-        if ("None" in calculatorOpt) {
-            res.status(404).send(`Calculator with id=${calculatorId} not found`);
-        } else {
-            const calculator = calculatorOpt.Some;
-            calculator.number -= valueToAdd;
-            calculator.updatedAt = getCurrentDate();
-            calculatorStorage.insert(calculatorId, calculator);
-            res.json(calculator);
-        }
+    // Endpoint to perform subtraction
+    app.put("/calculator/:id/subtract", (req, res) => {
+        updateCalculatorValue(req, res, (number, value) => number - value);
     });
 
-    //Multiply
+    // Endpoint to perform multiplication
     app.put("/calculator/:id/multiply", (req, res) => {
-        const calculatorId = req.params.id;
-        const valueToAdd = req.body.value;
-        const calculatorOpt = calculatorStorage.get(calculatorId);
-        if ("None" in calculatorOpt) {
-            res.status(404).send(`Calculator with id=${calculatorId} not found`);
-        } else {
-            const calculator = calculatorOpt.Some;
-            calculator.number *= valueToAdd;
-            calculator.updatedAt = getCurrentDate();
-            calculatorStorage.insert(calculatorId, calculator);
-            res.json(calculator);
-        }
+        updateCalculatorValue(req, res, (number, value) => number * value);
     });
 
-    //Divide
+    // Endpoint to perform division
     app.put("/calculator/:id/divide", (req, res) => {
         const calculatorId = req.params.id;
-        const valueToAdd = req.body.value;
-        const calculatorOpt = calculatorStorage.get(calculatorId);
-        if ("None" in calculatorOpt) {
-            res.status(404).send(`Calculator with id=${calculatorId} not found`);
+        const value = req.body.value;
+        if (value === 0) {
+            res.status(400).send("Division by zero is not allowed");
         } else {
-            const calculator = calculatorOpt.Some;
-            calculator.number /= valueToAdd;
-            calculator.updatedAt = getCurrentDate();
-            calculatorStorage.insert(calculatorId, calculator);
-            res.json(calculator);
+            updateCalculatorValue(req, res, (number, value) => number / value);
         }
     });
 
-    //Square (^2)
+    // Function to perform square (^2)
+    const square = (number: number) => Math.pow(number, 2);
+
+    // Endpoint to perform square
     app.put("/calculator/:id/square", (req, res) => {
-        const calculatorId = req.params.id;
-        const calculatorOpt = calculatorStorage.get(calculatorId);
-        if ("None" in calculatorOpt) {
-            res.status(404).send(`Calculator with id=${calculatorId} not found`);
-        } else {
-            const calculator = calculatorOpt.Some;
-            calculator.number = Math.pow(calculator.number, 2);
-            calculator.updatedAt = getCurrentDate();
-            calculatorStorage.insert(calculatorId, calculator);
-            res.json(calculator);
-        }
+        updateCalculatorValue(req, res, square);
     });
 
-    //Square root
+    // Function to perform square root
+    const squareRoot = (number: number) => Math.sqrt(number);
+
+    // Endpoint to perform square root
     app.put("/calculator/:id/squareroot", (req, res) => {
-        const calculatorId = req.params.id;
-        const calculatorOpt = calculatorStorage.get(calculatorId);
-        if ("None" in calculatorOpt) {
-            res.status(404).send(`Calculator with id=${calculatorId} not found`);
-        } else {
-            const calculator = calculatorOpt.Some;
-            calculator.number = Math.sqrt(calculator.number);
-            calculator.updatedAt = getCurrentDate();
-            calculatorStorage.insert(calculatorId, calculator);
-            res.json(calculator);
-        }
+        updateCalculatorValue(req, res, squareRoot);
     });
 
-    //Increment (++)
+    // Function to increment by 1
+    const increment = (number: number) => number + 1;
+
+    // Endpoint to increment
     app.put("/calculator/:id/increment", (req, res) => {
-        const calculatorId = req.params.id;
-        const calculatorOpt = calculatorStorage.get(calculatorId);
-        if ("None" in calculatorOpt) {
-            res.status(404).send(`Calculator with id=${calculatorId} not found`);
-        } else {
-            const calculator = calculatorOpt.Some;
-            calculator.number += 1;
-            calculator.updatedAt = getCurrentDate();
-            calculatorStorage.insert(calculatorId, calculator);
-            res.json(calculator);
-        }
+        updateCalculatorValue(req, res, increment);
     });
 
-    //Decrement (--)
+    // Function to decrement by 1
+    const decrement = (number: number) => number - 1;
+
+    // Endpoint to decrement
     app.put("/calculator/:id/decrement", (req, res) => {
-        const calculatorId = req.params.id;
-        const calculatorOpt = calculatorStorage.get(calculatorId);
-        if ("None" in calculatorOpt) {
-            res.status(404).send(`Calculator with id=${calculatorId} not found`);
-        } else {
-            const calculator = calculatorOpt.Some;
-            calculator.number -= 1;
-            calculator.updatedAt = getCurrentDate();
-            calculatorStorage.insert(calculatorId, calculator);
-            res.json(calculator);
-        }
+        updateCalculatorValue(req, res, decrement);
     });
 
-    //Send number from source to target
+    // Endpoint to send number from source to target
     app.put("/calculator/:sourceId/send/:targetId", (req, res) => {
         const sourceCalculatorId = req.params.sourceId;
         const targetCalculatorId = req.params.targetId;
     
-        const sourceCalculatorOpt = calculatorStorage.get(sourceCalculatorId);
-        if ("None" in sourceCalculatorOpt) {
-            return res.status(404).send(`Source Calculator with id=${sourceCalculatorId} not found`);
+        const sourceCalculator = calculatorStorage.get(sourceCalculatorId);
+        const targetCalculator = calculatorStorage.get(targetCalculatorId);
+    
+        if (sourceCalculator === null) {
+            res.status(404).send(`Source Calculator with id=${sourceCalculatorId} not found`);
+        } else if (targetCalculator === null) {
+            res.status(404).send(`Target Calculator with id=${targetCalculatorId} not found`);
+        } else {
+            targetCalculator.numberBefore = targetCalculator.number;
+            targetCalculator.number = sourceCalculator.number;
+    
+            const currentDate = getCurrentDate();
+            sourceCalculator.updatedAt = currentDate;
+            targetCalculator.updatedAt = currentDate;
+    
+            calculatorStorage.insert(sourceCalculatorId, sourceCalculator);
+            calculatorStorage.insert(targetCalculatorId, targetCalculator);
+    
+            res.json(targetCalculator);
         }
-        const sourceCalculator = sourceCalculatorOpt.Some;
-    
-        const targetCalculatorOpt = calculatorStorage.get(targetCalculatorId);
-        if ("None" in targetCalculatorOpt) {
-            return res.status(404).send(`Target Calculator with id=${targetCalculatorId} not found`);
-        }
-        const targetCalculator = targetCalculatorOpt.Some;
-    
-        targetCalculator.numberBefore = targetCalculator.number;
-        targetCalculator.number = sourceCalculator.number;
-    
-        const currentDate = getCurrentDate();
-        sourceCalculator.updatedAt = currentDate;
-        targetCalculator.updatedAt = currentDate;
-    
-        calculatorStorage.insert(sourceCalculatorId, sourceCalculator);
-        calculatorStorage.insert(targetCalculatorId, targetCalculator);
-    
-        res.json(targetCalculator);
     });
 
-    //Delete all calculators
+    // Endpoint to delete all calculators
     app.delete("/calculators/deleteall", (req, res) => {
-        const calculatorIds = Array.from(calculatorStorage.keys());
-    
-        calculatorIds.forEach(calculatorId => {
-            calculatorStorage.remove(calculatorId);
-        });
-    
+        calculatorStorage.clear();
         res.send("All calculators deleted successfully");
     });
 
-    //Delete 1 calculator
+    // Endpoint to delete a calculator by ID
     app.delete("/calculator/:id", (req, res) => {
         const calculatorId = req.params.id;
         const deletedCalculator = calculatorStorage.remove(calculatorId);
-        if ("None" in deletedCalculator) {
-           res.status(400).send(`couldn't delete a calculator with id=${calculatorId}. calculator not found`);
+        if (deletedCalculator === null) {
+            res.status(400).send(`Couldn't delete calculator with id=${calculatorId}. Calculator not found`);
         } else {
-           res.json(deletedCalculator.Some);
+            res.json(deletedCalculator);
         }
-     });
+    });
 
+    // Start the Express server
     return app.listen();
 });
 
+// Function to get the current date
 function getCurrentDate() {
-    const timestamp = new Number(ic.time());
-    return new Date(timestamp.valueOf() / 1000_000);
+    return new Date(ic.time().toBigInt() / 1000000);
 }
